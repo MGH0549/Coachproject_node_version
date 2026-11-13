@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  Coach
+  Client
+}
+
+enum ClientStatus {
+  Pending
+  Active
+  Deactivated
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String @unique
+  passwordHash String
+  role Role @default(Client)
+  failedLogins Int @default(0)
+  lockedUntil DateTime? @db.Timestamptz(3)
+  consentAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  profile ClientProfile?
+  refreshTokens RefreshToken[]
+  passwordResets PasswordReset[]
+}
+
+model ClientProfile {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName String
+  whatsapp String
+  package String?
+  status ClientStatus @default(Pending)
+  accessEndAt DateTime? @db.Timestamptz(3)
+  activatedAt DateTime? @db.Timestamptz(3)
+  deactivatedAt DateTime? @db.Timestamptz(3)
+  reminderSentFor DateTime? @db.Timestamptz(3)
+  version Int @default(1)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  trainingPlan TrainingPlan?
+  dietPlan DietPlan?
+  checkIns CheckIn[]
+  workoutLogs WorkoutLog[]
+  @@index([status, createdAt])
+  @@index([accessEndAt])
+}
+
+model RefreshToken {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family String @db.Uuid
+  tokenHash String @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([family])
+  @@index([expiresAt])
+}
+
+model PasswordReset {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  usedAt DateTime? @db.Timestamptz(3)
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String @db.Uuid
+  action String
+  recordId String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([createdAt])
+}
+
+model Exercise {
+  id String @id @default(uuid()) @db.Uuid
+  name String
+  muscleGroup String
+  youtubeVideoId String
+  notes String?
+  archived Boolean @default(false)
+  version Int @default(1)
+  placements PlanExercise[]
+  alternatives ExerciseAlternative[]
+  @@index([archived, muscleGroup])
+}
+
+model TrainingPlan {
+  id String @id @default(uuid()) @db.Uuid
+  clientId String? @unique @db.Uuid
+  client ClientProfile? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name String
+  isTemplate Boolean @default(false)
+  choicesLocked Boolean @default(false)
+  version Int @default(1)
+  days PlanDay[]
+  @@index([isTemplate])
+}
+
+model PlanDay {
+  id String @id @default(uuid()) @db.Uuid
+  planId String @db.Uuid
+  plan TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name String
+  order Int
+  exercises PlanExercise[]
+  @@unique([planId, order])
+}
+
+model PlanExercise {
+  id String @id @default(uuid()) @db.Uuid
+  dayId String @db.Uuid
+  day PlanDay @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  exerciseId String @db.Uuid
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  sets Int
+  reps String
+  restSeconds Int
+  tempo String?
+  note String?
+  order Int
+  choicesLocked Boolean @default(false)
+  selectedAlternativeId String? @db.Uuid
+  alternatives ExerciseAlternative[]
+  @@unique([dayId, order])
+}
+
+model ExerciseAlternative {
+  id String @id @default(uuid()) @db.Uuid
+  planExerciseId String @db.Uuid
+  planExercise PlanExercise @relation(fields: [planExerciseId], references: [id], onDelete: Cascade)
+  exerciseId String @db.Uuid
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  sets Int?
+  reps String?
+  note String?
+  @@unique([planExerciseId, exerciseId])
+}
+
+model DietPlan {
+  id String @id @default(uuid()) @db.Uuid
+  clientId String? @unique @db.Uuid
+  client ClientProfile? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name String
+  isTemplate Boolean @default(false)
+  choicesLocked Boolean @default(false)
+  calories Int
+  protein Float
+  carbs Float
+  fat Float
+  version Int @default(1)
+  meals Meal[]
+  @@index([isTemplate])
+}
+
+model Meal {
+  id String @id @default(uuid()) @db.Uuid
+  planId String @db.Uuid
+  plan DietPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  name String
+  time String?
+  order Int
+  options MealOption[]
+  selection ClientMealSelection?
+  @@unique([planId, order])
+}
+
+model MealOption {
+  id String @id @default(uuid()) @db.Uuid
+  mealId String @db.Uuid
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  name String
+  calories Int
+  protein Float
+  carbs Float
+  fat Float
+  items MealOptionItem[]
+  selections ClientMealSelection[]
+}
+
+model MealOptionItem {
+  id String @id @default(uuid()) @db.Uuid
+  optionId String @db.Uuid
+  option MealOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  food String
+  quantity Float
+  unit String
+}
+
+model ClientMealSelection {
+  id String @id @default(uuid()) @db.Uuid
+  mealId String @unique @db.Uuid
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  optionId String @db.Uuid
+  option MealOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  locked Boolean @default(false)
+}
+
+model CheckIn {
+  id String @id @default(uuid()) @db.Uuid
+  clientId String @db.Uuid
+  client ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  weight Float
+  measurements Json
+  energy Int
+  notes String?
+  feedback String?
+  version Int @default(1)
+  recordedAt DateTime @default(now()) @db.Timestamptz(3)
+  localDate String
+  photos ProgressPhoto[]
+  @@index([clientId, recordedAt])
+  @@index([clientId, localDate])
+}
+
+model ProgressPhoto {
+  id String @id @default(uuid()) @db.Uuid
+  checkInId String @db.Uuid
+  checkIn CheckIn @relation(fields: [checkInId], references: [id], onDelete: Cascade)
+  publicId String @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([checkInId])
+}
+
+model WorkoutLog {
+  id String @id @default(uuid()) @db.Uuid
+  clientId String @db.Uuid
+  client ClientProfile @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planExerciseId String @db.Uuid
+  exerciseId String @db.Uuid
+  exerciseName String
+  alternativeId String? @db.Uuid
+  sets Int
+  reps String
+  recordedAt DateTime @default(now()) @db.Timestamptz(3)
+  localDate String
+  @@index([clientId, recordedAt])
+  @@index([clientId, localDate])
+}
