@@ -78,6 +78,8 @@ For the pre-launch load check, set `LOAD_BASE_URL` and `LOAD_ACCESS_TOKEN` to a 
 
 ## Operations and deployment
 
+Set `TRUST_PROXY=true` in production behind Render or another trusted reverse proxy so IP-based rate limits use each visitor's address. It defaults to `false`, which ignores forwarded headers. Enable it only when all requests pass through trusted proxies that sanitize forwarded headers, including `X-Forwarded-For`, and direct public access to the API is blocked.
+
 Hosting is intentionally unselected. The Dockerfile provides a Linux runtime running as a non-root user; the production artifact runs `node dist/main.js`. Build and release steps are:
 
 ```text

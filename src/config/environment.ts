@@ -39,6 +39,12 @@ export function validateEnvironment(env: Record<string, unknown>) {
       required(key);
   if (production && env.COOKIE_SECURE === 'false')
     throw new Error('Production cookies must be secure');
+  if (
+    env.TRUST_PROXY !== undefined &&
+    env.TRUST_PROXY !== 'true' &&
+    env.TRUST_PROXY !== 'false'
+  )
+    throw new Error('TRUST_PROXY must be true or false');
   return {
     ...env,
     DATABASE_URL: database,
@@ -51,5 +57,6 @@ export function validateEnvironment(env: Record<string, unknown>) {
     REMINDER_LEAD_DAYS: positiveInt('REMINDER_LEAD_DAYS', 3, 365),
     AUDIT_RETENTION_DAYS: positiveInt('AUDIT_RETENTION_DAYS', 365, 3650),
     COOKIE_SECURE: production || env.COOKIE_SECURE === 'true',
+    TRUST_PROXY: env.TRUST_PROXY === 'true',
   };
 }
