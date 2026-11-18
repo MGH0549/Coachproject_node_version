@@ -86,16 +86,20 @@ export class AuthService {
   }
   private async issue(user: User) {
     const raw = this.crypto.random();
+    const refreshExpiresAt = new Date(
+      this.clock.now().getTime() + 30 * 86400000,
+    );
     await this.db.addSession({
       userId: user.id,
       family: this.crypto.uuid(),
       tokenHash: this.crypto.digest(raw),
-      expiresAt: new Date(this.clock.now().getTime() + 30 * 86400000),
+      expiresAt: refreshExpiresAt,
     });
     return {
       accessToken: await this.jwt.sign(user),
       expiresIn: 900,
       refreshToken: raw,
+      refreshExpiresAt,
     };
   }
   async refresh(
@@ -129,6 +133,7 @@ export class AuthService {
     }
     debug('refresh_validated');
     const next = this.crypto.random();
+    const refreshExpiresAt = new Date(now.getTime() + 30 * 86400000);
     debug('refresh_rotation_started');
     if (
       !(await this.db.rotateSession(
@@ -137,7 +142,7 @@ export class AuthService {
           userId: user.id,
           family: token.family,
           tokenHash: this.crypto.digest(next),
-          expiresAt: new Date(now.getTime() + 30 * 86400000),
+          expiresAt: refreshExpiresAt,
         },
         now,
       ))
@@ -152,6 +157,7 @@ export class AuthService {
       accessToken: await this.jwt.sign(user),
       expiresIn: 900,
       refreshToken: next,
+      refreshExpiresAt,
     });
   }
   async logout(raw?: string) {

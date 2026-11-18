@@ -75,7 +75,8 @@ describe('refresh token theft detection', () => {
       expiresAt: new Date(Date.now() + 100000),
     });
     rotateSession.mockResolvedValue(true);
-    expect(await service.refresh('old')).toMatchObject({
+    const result = await service.refresh('old');
+    expect(result).toMatchObject({
       ok: true,
       value: { accessToken: 'access', refreshToken: 'new-secret' },
     });
@@ -83,6 +84,9 @@ describe('refresh token theft detection', () => {
       't',
       expect.objectContaining({ tokenHash: 'new-secret', family: 'f' }),
       expect.any(Date),
+    );
+    expect(result.ok && result.value.refreshExpiresAt).toEqual(
+      rotateSession.mock.calls[0][1].expiresAt,
     );
   });
 });

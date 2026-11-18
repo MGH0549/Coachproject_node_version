@@ -34,10 +34,10 @@ export class AuthController {
       path: '/api/v1/auth',
     };
   }
-  private cookie(reply: FastifyReply, token: string) {
+  private cookie(reply: FastifyReply, token: string, refreshExpiresAt: Date) {
     reply.setCookie('refresh', token, {
       ...this.cookieOptions(),
-      maxAge: 30 * 86400,
+      expires: refreshExpiresAt,
     });
   }
   @Post('register') async register(@Body() dto: RegisterDto) {
@@ -48,7 +48,7 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const result = unwrap(await this.auth.login(dto.email, dto.password));
-    this.cookie(reply, result.refreshToken);
+    this.cookie(reply, result.refreshToken, result.refreshExpiresAt);
     return { accessToken: result.accessToken, expiresIn: result.expiresIn };
   }
   @Post('refresh') @HttpCode(200) async refresh(
@@ -63,7 +63,7 @@ export class AuthController {
     );
     if (!result.ok) reply.clearCookie('refresh', this.cookieOptions());
     const session = unwrap(result);
-    this.cookie(reply, session.refreshToken);
+    this.cookie(reply, session.refreshToken, session.refreshExpiresAt);
     return { accessToken: session.accessToken, expiresIn: session.expiresIn };
   }
   @Post('logout') @HttpCode(200) async logout(
