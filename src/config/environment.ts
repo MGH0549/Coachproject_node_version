@@ -57,6 +57,7 @@ export function validateEnvironment(env: Record<string, unknown>) {
     REMINDER_LEAD_DAYS: positiveInt('REMINDER_LEAD_DAYS', 3, 365),
     AUDIT_RETENTION_DAYS: positiveInt('AUDIT_RETENTION_DAYS', 365, 3650),
     COOKIE_SECURE: production || env.COOKIE_SECURE === 'true',
+    AUTH_DEBUG: env.AUTH_DEBUG === 'true',
     TRUST_PROXY: env.TRUST_PROXY === 'true',
   };
 }

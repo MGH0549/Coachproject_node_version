@@ -23,7 +23,7 @@ async function main() {
   try {
     await db.$transaction(async (tx) => {
       // One coach today. Serialize provisioning without placing credentials in a migration.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(70300601)`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(70300601)::text`;
       if (await tx.user.count({ where: { role: 'Coach' } }))
         throw new Error('A coach already exists');
       await tx.user.create({

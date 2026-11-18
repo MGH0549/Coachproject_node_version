@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  Logger,
   SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -47,8 +48,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 }
 @Injectable()
 export class AuthenticationGuard extends AuthGuard('jwt') {
-  constructor(private readonly reflector: Reflector) {
+  private readonly logger = new Logger(AuthenticationGuard.name);
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly config: ConfigService,
+  ) {
     super();
+  }
+  handleRequest<TUser = Actor>(
+    error: unknown,
+    user: TUser,
+    info: unknown,
+    context: ExecutionContext,
+  ): TUser {
+    if (
+      this.config.get<boolean>('AUTH_DEBUG') &&
+      info instanceof Error &&
+      info.name === 'TokenExpiredError'
+    ) {
+      const req = context.switchToHttp().getRequest<FastifyRequest>();
+      this.logger.log({
+        event: 'auth.access_token_expired',
+        requestId: req.id,
+      });
+    }
+    return super.handleRequest<TUser>(error, user, info, context);
   }
   canActivate(context: ExecutionContext) {
     return this.reflector.getAllAndOverride<boolean>('public', [

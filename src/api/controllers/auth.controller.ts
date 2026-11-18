@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Logger,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -12,16 +20,23 @@ import { unwrap } from '../problem.filter';
 @Controller('auth')
 @Throttle({ default: { limit: 10, ttl: 60000 } })
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService,
   ) {}
+  private cookieOptions() {
+    const secure = this.config.getOrThrow<boolean>('COOKIE_SECURE');
+    return {
+      httpOnly: true,
+      secure,
+      sameSite: secure ? ('none' as const) : ('strict' as const),
+      path: '/api/v1/auth',
+    };
+  }
   private cookie(reply: FastifyReply, token: string) {
     reply.setCookie('refresh', token, {
-      httpOnly: true,
-      secure: this.config.getOrThrow<boolean>('COOKIE_SECURE'),
-      sameSite: 'strict',
-      path: '/api/v1/auth',
+      ...this.cookieOptions(),
       maxAge: 30 * 86400,
     });
   }
@@ -40,8 +55,13 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
-    const result = await this.auth.refresh(req.cookies.refresh);
-    if (!result.ok) reply.clearCookie('refresh', { path: '/api/v1/auth' });
+    this.debug(req, 'refresh_received', {
+      cookiePresent: Boolean(req.cookies.refresh),
+    });
+    const result = await this.auth.refresh(req.cookies.refresh, (event) =>
+      this.debug(req, event),
+    );
+    if (!result.ok) reply.clearCookie('refresh', this.cookieOptions());
     const session = unwrap(result);
     this.cookie(reply, session.refreshToken);
     return { accessToken: session.accessToken, expiresIn: session.expiresIn };
@@ -50,9 +70,23 @@ export class AuthController {
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
+    this.debug(req, 'logout_requested');
     const result = unwrap(await this.auth.logout(req.cookies.refresh));
-    reply.clearCookie('refresh', { path: '/api/v1/auth' });
+    reply.clearCookie('refresh', this.cookieOptions());
     return result;
+  }
+  private debug(
+    req: FastifyRequest,
+    event: string,
+    details: { cookiePresent?: boolean } = {},
+  ) {
+    if (this.config.get<boolean>('AUTH_DEBUG')) {
+      this.logger.log({
+        event: `auth.${event}`,
+        requestId: req.id,
+        ...details,
+      });
+    }
   }
   @Post('forgot-password')
   @HttpCode(200)

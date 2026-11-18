@@ -9,6 +9,18 @@ import {
 import { fail, ok } from '../../domain/result';
 import { User } from '../../domain/models';
 
+export type RefreshDiagnostic =
+  | 'refresh_cookie_missing'
+  | 'refresh_token_unknown'
+  | 'refresh_token_expired'
+  | 'refresh_user_missing'
+  | 'refresh_validated'
+  | 'refresh_rotation_started'
+  | 'refresh_rotated'
+  | 'refresh_reuse_detected'
+  | 'refresh_rotation_conflict'
+  | 'refresh_family_revoked';
+
 export class AuthService {
   constructor(
     private readonly db: Store,
@@ -86,20 +98,38 @@ export class AuthService {
       refreshToken: raw,
     };
   }
-  async refresh(raw?: string) {
-    if (!raw) return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+  async refresh(
+    raw?: string,
+    debug: (event: RefreshDiagnostic) => void = () => undefined,
+  ) {
+    if (!raw) {
+      debug('refresh_cookie_missing');
+      return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+    }
     const token = await this.db.session(this.crypto.digest(raw));
     const now = this.clock.now();
-    if (!token) return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+    if (!token) {
+      debug('refresh_token_unknown');
+      return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+    }
     if (token.revokedAt) {
+      debug('refresh_reuse_detected');
       await this.db.revokeFamily(token.family, now);
+      debug('refresh_family_revoked');
       return fail('SESSION_REUSED', 'انتهت الجلسة. سجل الدخول مرة أخرى', 401);
     }
-    if (token.expiresAt <= now)
+    if (token.expiresAt <= now) {
+      debug('refresh_token_expired');
       return fail('INVALID_SESSION', 'انتهت الجلسة', 401);
+    }
     const user = await this.db.userById(token.userId);
-    if (!user) return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+    if (!user) {
+      debug('refresh_user_missing');
+      return fail('INVALID_SESSION', 'الجلسة غير صالحة', 401);
+    }
+    debug('refresh_validated');
     const next = this.crypto.random();
+    debug('refresh_rotation_started');
     if (
       !(await this.db.rotateSession(
         token.id,
@@ -112,9 +142,12 @@ export class AuthService {
         now,
       ))
     ) {
+      debug('refresh_rotation_conflict');
       await this.db.revokeFamily(token.family, now);
+      debug('refresh_family_revoked');
       return fail('SESSION_REUSED', 'انتهت الجلسة. سجل الدخول مرة أخرى', 401);
     }
+    debug('refresh_rotated');
     return ok({
       accessToken: await this.jwt.sign(user),
       expiresIn: 900,
