@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=26 <27"
   },
-  "scripts": {
+   "scripts": {
     "dev": "npm run build && node dist/main.js",
     "build": "prisma generate && tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
@@ -19,7 +19,7 @@
     "db:deploy": "prisma migrate deploy",
     "coach:create": "tsx scripts/create-coach.ts",
     "load": "node scripts/load.mjs"
-  },
+   },
   "dependencies": {
     "@fastify/compress": "9.3.0",
     "@fastify/cookie": "11.1.5",
