@@ -80,6 +80,21 @@ export function documentResponses(document: OpenAPIObject) {
       version: integer,
     }),
     Account: {
+      ...object({
+        fullName: str,
+        email: { type: 'string', format: 'email' },
+        status: {
+          type: 'string',
+          enum: ['Pending', 'Active', 'Expired', 'Deactivated'],
+        },
+        accessEndsAt: nullable(date),
+        package: nullable(str),
+        timeZone: { type: 'string', enum: ['Africa/Cairo'] },
+        whatsappUrl: { type: 'string', format: 'uri' },
+      }),
+      additionalProperties: false,
+    },
+    CoachAccount: {
       allOf: [
         ref('Client'),
         object({
@@ -262,10 +277,10 @@ export function documentResponses(document: OpenAPIObject) {
     ClientController_export: 'Export',
     ClientController_delete: 'Message',
     CoachController_list: 'ClientPage',
-    CoachController_client: 'Account',
-    CoachController_activate: 'Account',
+    CoachController_client: 'CoachAccount',
+    CoachController_activate: 'CoachAccount',
     CoachController_deactivate: 'Message',
-    CoachController_extend: 'Account',
+    CoachController_extend: 'CoachAccount',
     CoachController_library: 'ExercisePage',
     CoachController_createExercise: 'Exercise',
     CoachController_updateExercise: 'Exercise',
@@ -303,6 +318,12 @@ export function documentResponses(document: OpenAPIObject) {
       const operation = path?.[method];
       if (!operation) continue;
       const schema = responses[operation.operationId ?? ''];
+      if (operation.operationId === 'AuthController_register')
+        operation.description =
+          'Returns 201 with Pending registration details only; creates no session or cookie. Call login next.';
+      if (operation.operationId === 'ClientController_account')
+        operation.description =
+          'Available to authenticated clients including Pending, Expired and Deactivated. Returns only the seven account fields; no internal database fields.';
       if (schema)
         for (const [status, response] of Object.entries(operation.responses))
           if (response && status.startsWith('2') && !('$ref' in response))
@@ -310,6 +331,19 @@ export function documentResponses(document: OpenAPIObject) {
       for (const status of [400, 401, 403, 404, 409, 413, 429, 500, 503])
         operation.responses[status] = {
           description: 'Problem response; stable code and Arabic message',
+          content: { 'application/problem+json': { schema: ref('Problem') } },
+        };
+      if (
+        operation.operationId?.startsWith('ClientController_') &&
+        ![
+          'ClientController_account',
+          'ClientController_export',
+          'ClientController_delete',
+        ].includes(operation.operationId)
+      )
+        operation.responses[403] = {
+          description:
+            'Pending, Expired and Deactivated clients receive ACCESS_INACTIVE. Other access restrictions may also return 403.',
           content: { 'application/problem+json': { schema: ref('Problem') } },
         };
     }

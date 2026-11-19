@@ -41,6 +41,16 @@ describe('PostgreSQL API integration', () => {
   const email = `client-${suffix}@example.com`;
   const otherEmail = `other-${suffix}@example.com`;
   const coachEmail = `coach-${suffix}@example.com`;
+  const flowEmails: string[] = [];
+  const accountFields = [
+    'fullName',
+    'email',
+    'status',
+    'accessEndsAt',
+    'package',
+    'timeZone',
+    'whatsappUrl',
+  ];
   const photoAdapter = {
     upload: jest.fn(async () => `progress/${suffix}/photo`),
     remove: jest.fn(async () => {}),
@@ -56,6 +66,40 @@ describe('PostgreSQL API integration', () => {
   const client = () => request(app.getHttpServer());
   const asCoach = () => ({ Authorization: `Bearer ${coachToken}` });
   const asClient = () => ({ Authorization: `Bearer ${clientToken}` });
+  async function registerAndLogin(label: string) {
+    const address = `${label}-${suffix}@example.com`;
+    flowEmails.push(address);
+    const registered = await client()
+      .post('/api/v1/auth/register')
+      .send({
+        email: address,
+        password,
+        fullName: 'New Client',
+        whatsapp: '201000000001',
+        consent: true,
+      })
+      .expect(201);
+    expect(Object.keys(registered.body).sort()).toEqual([
+      'id',
+      'status',
+      'whatsappUrl',
+    ]);
+    expect(registered.headers['set-cookie']).toBeUndefined();
+    const user = await db.user.findUniqueOrThrow({ where: { email: address } });
+    expect(await db.refreshToken.count({ where: { userId: user.id } })).toBe(0);
+    const login = await client()
+      .post('/api/v1/auth/login')
+      .send({ email: address, password })
+      .expect(200);
+    const profile = await db.clientProfile.findUniqueOrThrow({
+      where: { userId: user.id },
+    });
+    return {
+      id: profile.id,
+      token: login.body.accessToken as string,
+      email: address,
+    };
+  }
   beforeAll(async () => {
     const { AppModule } = await import('../../src/app.module');
     const module = await Test.createTestingModule({ imports: [AppModule] })
@@ -91,7 +135,9 @@ describe('PostgreSQL API integration', () => {
   afterAll(async () => {
     if (db) {
       await db.user.deleteMany({
-        where: { email: { in: [email, otherEmail, coachEmail] } },
+        where: {
+          email: { in: [email, otherEmail, coachEmail, ...flowEmails] },
+        },
       });
       // Test-created templates/exercises have a unique prefix; never truncate shared tables.
       await db.trainingPlan.deleteMany({
@@ -159,6 +205,23 @@ describe('PostgreSQL API integration', () => {
         status: 'Pending',
         whatsappUrl: expect.stringContaining('https://wa.me/'),
       });
+      expect(response.headers['set-cookie']).toBeUndefined();
+      expect(Object.keys(response.body).sort()).toEqual([
+        'id',
+        'status',
+        'whatsappUrl',
+      ]);
+      const user = await db.user.findUniqueOrThrow({
+        where: { email: address },
+      });
+      expect(await db.refreshToken.count({ where: { userId: user.id } })).toBe(
+        0,
+      );
+      const profile = await db.clientProfile.findUniqueOrThrow({
+        where: { userId: user.id },
+      });
+      if (address === email) clientId = profile.id;
+      else otherId = profile.id;
     }
     clientToken = (
       await client()
@@ -176,13 +239,8 @@ describe('PostgreSQL API integration', () => {
       .get('/api/v1/me')
       .set(asClient())
       .expect(200);
-    clientId = account.body.id;
-    otherId = (
-      await client()
-        .get('/api/v1/me')
-        .auth(otherToken, { type: 'bearer' })
-        .expect(200)
-    ).body.id;
+    expect(account.body.status).toBe('Pending');
+    expect(Object.keys(account.body).sort()).toEqual([...accountFields].sort());
     expect(JSON.stringify(account.body)).not.toMatch(
       /passwordHash|refreshToken|failedLogins/,
     );
@@ -218,6 +276,137 @@ describe('PostgreSQL API integration', () => {
       .set(asCoach())
       .send({ version: 1, endDate: '2099-01-31', package: 'شهري' })
       .expect(201);
+  });
+  it.each(['Pending', 'Expired', 'Deactivated'] as const)(
+    'allows the %s account but refuses every guarded client endpoint with ACCESS_INACTIVE',
+    async (status) => {
+      const fixture = await registerAndLogin(status.toLowerCase());
+      const end = new Date(Date.now() - 86400000);
+      await db.clientProfile.update({
+        where: { id: fixture.id },
+        data: {
+          status: status === 'Expired' ? 'Active' : status,
+          accessEndAt: status === 'Pending' ? null : end,
+          deactivatedAt: status === 'Deactivated' ? end : null,
+          reminderSentFor: end,
+        },
+      });
+      const account = await client()
+        .get('/api/v1/me')
+        .auth(fixture.token, { type: 'bearer' })
+        .expect(200);
+      expect(Object.keys(account.body).sort()).toEqual(
+        [...accountFields].sort(),
+      );
+      expect(account.body).toEqual({
+        fullName: 'New Client',
+        email: fixture.email,
+        status,
+        accessEndsAt: status === 'Pending' ? null : end.toISOString(),
+        package: null,
+        timeZone: 'Africa/Cairo',
+        whatsappUrl: expect.stringContaining('https://wa.me/'),
+      });
+      const id = randomUUID();
+      const routes: ['get' | 'post' | 'put' | 'delete', string][] = [
+        ['get', 'training'],
+        ['get', 'diet'],
+        ['get', 'progress'],
+        ['get', 'workouts'],
+        ['post', 'check-ins'],
+        ['post', 'workouts'],
+        ['put', `training/exercises/${id}/selection`],
+        ['put', `diet/meals/${id}/selection`],
+        ['post', `check-ins/${id}/photos`],
+        ['get', `photos/${id}`],
+        ['delete', `photos/${id}`],
+      ];
+      for (const [method, route] of routes) {
+        const agent = client();
+        const refused = await agent[method](`/api/v1/me/${route}`)
+          .auth(fixture.token, { type: 'bearer' })
+          .expect(403);
+        expect(refused.body.code).toBe('ACCESS_INACTIVE');
+      }
+    },
+  );
+  it('registers, logs in immediately, shows Pending, then unlocks plans after coach activation with the same login', async () => {
+    const fixture = await registerAndLogin('dashboard');
+    const auth = { Authorization: `Bearer ${fixture.token}` };
+    const account = await client().get('/api/v1/me').set(auth).expect(200);
+    expect(account.body.status).toBe('Pending');
+    const trainingPlan = await client()
+      .put(`/api/v1/coach/clients/${fixture.id}/training`)
+      .set(asCoach())
+      .send({
+        name: `${suffix}-dashboard-training`,
+        days: [{ name: 'Day 1', order: 0, exercises: [] }],
+      })
+      .expect(200);
+    const macros = { calories: 500, protein: 30, carbs: 50, fat: 20 };
+    const dietPlan = await client()
+      .put(`/api/v1/coach/clients/${fixture.id}/diet`)
+      .set(asCoach())
+      .send({
+        name: `${suffix}-dashboard-diet`,
+        ...macros,
+        meals: [
+          {
+            name: 'Breakfast',
+            order: 0,
+            options: ['A', 'B'].map((name) => ({
+              name,
+              ...macros,
+              items: [{ food: 'Rice', quantity: 100, unit: 'g' }],
+            })),
+          },
+        ],
+      })
+      .expect(200);
+    for (const route of ['training', 'diet', 'progress', 'workouts']) {
+      const refused = await client()
+        .get(`/api/v1/me/${route}`)
+        .set(auth)
+        .expect(403);
+      expect(refused.body.code).toBe('ACCESS_INACTIVE');
+    }
+    const refusedCheckIn = await client()
+      .post('/api/v1/me/check-ins')
+      .set(auth)
+      .send({ weight: 80, measurements: {}, energy: 7 })
+      .expect(403);
+    expect(refusedCheckIn.body.code).toBe('ACCESS_INACTIVE');
+    await client()
+      .post(`/api/v1/coach/clients/${fixture.id}/activate`)
+      .set(asCoach())
+      .send({
+        version: 1,
+        endDate: '2099-01-31',
+        package: 'Monthly',
+      })
+      .expect(201);
+    expect(
+      (await client().get('/api/v1/me/training').set(auth).expect(200)).body.id,
+    ).toBe(trainingPlan.body.id);
+    expect(
+      (await client().get('/api/v1/me/diet').set(auth).expect(200)).body.id,
+    ).toBe(dietPlan.body.id);
+    for (const route of ['progress', 'workouts'])
+      await client().get(`/api/v1/me/${route}`).set(auth).expect(200);
+    await client()
+      .post('/api/v1/me/check-ins')
+      .set(auth)
+      .send({ weight: 80, measurements: {}, energy: 7 })
+      .expect(201);
+    const activated = await client().get('/api/v1/me').set(auth).expect(200);
+    expect(Object.keys(activated.body).sort()).toEqual(
+      [...accountFields].sort(),
+    );
+    expect(activated.body).toMatchObject({
+      status: 'Active',
+      package: 'Monthly',
+      accessEndsAt: '2099-01-31T21:59:59.999Z',
+    });
   });
   it('builds training alternatives, protects ownership and blocks deletion of in-use exercises', async () => {
     const exercises: string[] = [];
@@ -658,6 +847,23 @@ describe('PostgreSQL API integration', () => {
       await secured.getHttpAdapter().getInstance().ready();
       const agent = request(secured.getHttpServer());
       const docs = await agent.get('/api/docs-json').expect(200);
+      const accountSchema = docs.body.components.schemas.Account;
+      expect(Object.keys(accountSchema.properties).sort()).toEqual(
+        [...accountFields].sort(),
+      );
+      expect([...accountSchema.required].sort()).toEqual(
+        [...accountFields].sort(),
+      );
+      expect(accountSchema.additionalProperties).toBe(false);
+      expect(
+        docs.body.paths['/api/v1/me'].get.responses['200'].content[
+          'application/json'
+        ].schema.$ref,
+      ).toBe('#/components/schemas/Account');
+      expect(
+        docs.body.paths['/api/v1/coach/clients/{clientId}'].get.responses['200']
+          .content['application/json'].schema.$ref,
+      ).toBe('#/components/schemas/CoachAccount');
       expect(
         docs.body.components.schemas.Training.properties.days,
       ).toBeDefined();

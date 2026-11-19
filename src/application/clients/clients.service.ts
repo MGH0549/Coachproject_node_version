@@ -8,6 +8,20 @@ export class ClientsService {
     private readonly clock: Clock,
     private readonly settings: Settings,
   ) {}
+  async clientAccount(id: string) {
+    const result = await this.account(id);
+    if (!result.ok) return result;
+    const client = result.value;
+    return ok({
+      fullName: client.fullName,
+      email: client.email,
+      status: client.status,
+      accessEndsAt: client.accessEndAt,
+      package: client.package,
+      timeZone: client.timeZone,
+      whatsappUrl: client.whatsappUrl,
+    });
+  }
   async account(id: string) {
     const client = await this.db.client(id);
     return client

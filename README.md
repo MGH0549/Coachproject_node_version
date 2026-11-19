@@ -27,6 +27,9 @@ The coach command creates one coach without storing a default password; it refus
 
 ## Contract and client integration
 
+- Registration returns HTTP 201 with `{ id, status: 'Pending', whatsappUrl }` and creates no session or cookie. Call login immediately afterward, then use `GET /api/v1/me` to open the client's dashboard. Pending clients can log in before coach activation.
+- `GET /api/v1/me` returns only `fullName`, `email`, `status`, `accessEndsAt`, `package`, `timeZone`, and `whatsappUrl`. `accessEndsAt` and `package` may be null. Status is effective (`Pending`, `Active`, `Expired`, or `Deactivated`). IDs, versions, reminder markers and other internal fields are excluded. Coach account responses retain their existing fields, including `accessEndAt` and `version`.
+- For Pending, Expired and Deactivated clients, training, diet, selections, progress, check-ins, workouts and photos return HTTP 403 with code `ACCESS_INACTIVE`. Show the account notice and empty states without plan data. Once the coach activates the account, the same authenticated client can access assigned plans without another login.
 - Access tokens last 15 minutes. Send `Authorization: Bearer <accessToken>` on protected requests. Refresh is an HttpOnly, SameSite=Strict cookie scoped to `/api/v1/auth`. Angular must use credentials for auth requests and serialize refresh calls. A reused token revokes its entire family. Logout revokes the family; previously issued access tokens remain valid for at most their 15-minute lifetime.
 - Set `APP_ORIGIN` to the exact Angular origin. In development, the API also allows Swagger requests from `http://localhost:<PORT>` and `http://127.0.0.1:<PORT>`. CORS and the origin guard use the same allowlist. Cookie requests that change state must include an allowed origin. Production allows only `APP_ORIGIN`; host the app and API under the same parent domain. Cookies are host-only.
 - A client's own identifier is taken from their authenticated database record, never from a submitted client ID. Pending, deactivated and expired clients can read their account and use privacy tools, but cannot use plan/progress endpoints. Expiry is calculated on every request; it is not stored as a stale status.
@@ -70,7 +73,10 @@ $env:DATABASE_URL = 'postgresql://coach:localdevelopment@localhost:5432/coaching
 $env:TEST_DATABASE_URL = $env:DATABASE_URL
 npm.cmd run db:deploy
 npm.cmd run test:integration
+npm.cmd run verify
 ```
+
+`npm run verify` runs typecheck, lint, unit tests, build, and the PostgreSQL integration suite in that order. Set `TEST_DATABASE_URL` and apply migrations to that dedicated database first, as above. Integration coverage includes immediate Pending login, the exact account field allowlist for every inactive status, all inactive endpoint refusals with `ACCESS_INACTIVE`, and the register-to-coach-activation dashboard flow.
 
 Domain tests cover expiry, activation, extension, locks, Cairo midnight and DST changes, and photo retention. Architecture tests parse imports and reject outward dependencies from domain/application. Integration tests cover role/status/ownership rules, version conflicts, choice locks, templates, workout alternatives, photos, feedback, token rotation and replay, password recovery, lockout and deletion. CI provisions its own database, applies migrations, and runs lint/typecheck/tests/build and an audit.
 

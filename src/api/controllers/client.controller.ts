@@ -38,7 +38,7 @@ export class ClientController {
     private readonly progress: ProgressService,
   ) {}
   @Get() async account(@Req() req: ApiRequest) {
-    return unwrap(await this.clients.account(req.user.clientId!));
+    return unwrap(await this.clients.clientAccount(req.user.clientId!));
   }
   @Get('training') @Active() async plan(@Req() req: ApiRequest) {
     return unwrap(await this.training.get(req.user.clientId!));
