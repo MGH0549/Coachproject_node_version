@@ -247,6 +247,19 @@ model WorkoutLog {
   reps String
   recordedAt DateTime @default(now()) @db.Timestamptz(3)
   localDate String
+  note String?
+  workoutSets WorkoutSet[]
   @@index([clientId, recordedAt])
   @@index([clientId, localDate])
+  @@index([clientId, exerciseId, recordedAt, id])
+}
+
+model WorkoutSet {
+  id String @id @default(uuid()) @db.Uuid
+  workoutLogId String @db.Uuid
+  workoutLog WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+  setNumber Int
+  weightKg Decimal @db.Decimal(5, 2)
+  repetitions Int
+  @@unique([workoutLogId, setNumber])
 }

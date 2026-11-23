@@ -3,9 +3,66 @@ import { conflict, fail, missing, ok } from '../../domain/result';
 import { Store } from '../common/ports';
 export class TrainingService {
   constructor(private readonly db: Store) {}
-  async get(clientId: string) {
+  async remove(
+    actor: Actor,
+    clientId: string,
+    planId: string,
+    version: number,
+  ) {
+    if (actor.role !== 'Coach')
+      return fail('FORBIDDEN', 'ليس لديك صلاحية لهذا الإجراء', 403);
+    const result = await this.db.deleteClientPlan(
+      actor,
+      'training',
+      clientId,
+      planId,
+      version,
+    );
+    return result === 'ok'
+      ? ok({ message: 'تم حذف الخطة' })
+      : result === 'missing'
+        ? missing()
+        : conflict();
+  }
+  async get(clientId: string, withWeights = false) {
     const plan = await this.db.training(clientId);
-    return plan ? ok(plan) : missing();
+    if (!plan) return missing();
+    if (!withWeights) return ok(plan);
+    const sessions = await this.db.strengthSessions(clientId);
+    const last = (exerciseId: string) => {
+      const history = sessions.filter((s) => s.exerciseId === exerciseId);
+      const latest = history.sort(
+        (a, b) =>
+          b.recordedAt.getTime() - a.recordedAt.getTime() ||
+          b.id.localeCompare(a.id),
+      )[0];
+      return latest
+        ? {
+            lastSession: {
+              sets: latest.sets,
+              recordedAt: latest.recordedAt,
+              localDate: latest.localDate,
+            },
+            bestWeightKg: Math.max(
+              ...history.flatMap((s) => s.sets.map((set) => set.weightKg)),
+            ),
+          }
+        : {};
+    };
+    return ok({
+      ...plan,
+      days: plan.days.map((day) => ({
+        ...day,
+        exercises: day.exercises.map((exercise) => ({
+          ...exercise,
+          ...last(exercise.exerciseId),
+          alternatives: exercise.alternatives.map((alt) => ({
+            ...alt,
+            ...last(alt.exerciseId),
+          })),
+        })),
+      })),
+    });
   }
   async save(
     actor: Actor,

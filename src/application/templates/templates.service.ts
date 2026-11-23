@@ -4,7 +4,7 @@ import {
   TrainingInput,
   DietInput,
 } from '../../domain/models';
-import { missing, ok } from '../../domain/result';
+import { conflict, fail, missing, ok } from '../../domain/result';
 import { Store } from '../common/ports';
 import { TrainingService } from '../training/training.service';
 import { DietService } from '../diet/diet.service';
@@ -14,6 +14,21 @@ export class TemplatesService {
     private readonly training: TrainingService,
     private readonly diet: DietService,
   ) {}
+  async remove(
+    actor: Actor,
+    kind: 'training' | 'diet',
+    id: string,
+    version: number,
+  ) {
+    if (actor.role !== 'Coach')
+      return fail('FORBIDDEN', 'ليس لديك صلاحية لهذا الإجراء', 403);
+    const result = await this.db.deleteTemplate(actor, kind, id, version);
+    return result === 'ok'
+      ? ok({ message: 'تم حذف القالب' })
+      : result === 'missing'
+        ? missing()
+        : conflict();
+  }
   async list(kind: 'training' | 'diet', query: PageQuery) {
     return ok(await this.db.templates(kind, query));
   }

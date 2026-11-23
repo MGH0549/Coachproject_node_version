@@ -16,6 +16,7 @@ import { PrivacyService } from '../../application/clients/privacy.service';
 import { TrainingService } from '../../application/training/training.service';
 import { DietService } from '../../application/diet/diet.service';
 import { ProgressService } from '../../application/progress/progress.service';
+import { StrengthService } from '../../application/progress/strength.service';
 import { Active, ApiRequest, Roles } from '../security';
 import { unwrap } from '../problem.filter';
 import {
@@ -24,6 +25,8 @@ import {
   MealChoiceDto,
   PageDto,
   WorkoutDto,
+  StrengthDto,
+  StrengthEditDto,
 } from '../dtos';
 @ApiTags('Client')
 @ApiBearerAuth()
@@ -36,12 +39,47 @@ export class ClientController {
     private readonly training: TrainingService,
     private readonly diet: DietService,
     private readonly progress: ProgressService,
+    private readonly strength: StrengthService,
   ) {}
   @Get() async account(@Req() req: ApiRequest) {
     return unwrap(await this.clients.clientAccount(req.user.clientId!));
   }
   @Get('training') @Active() async plan(@Req() req: ApiRequest) {
-    return unwrap(await this.training.get(req.user.clientId!));
+    return unwrap(await this.training.get(req.user.clientId!, true));
+  }
+  @Post('strength') @Active() async saveStrength(
+    @Req() req: ApiRequest,
+    @Body() dto: StrengthDto,
+  ) {
+    return unwrap(await this.strength.save(req.user.clientId!, dto));
+  }
+  @Put('strength/:id') @Active() async editStrength(
+    @Req() req: ApiRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: StrengthEditDto,
+  ) {
+    return unwrap(await this.strength.edit(req.user.clientId!, id, dto));
+  }
+  @Delete('strength/:id') @Active() async deleteStrength(
+    @Req() req: ApiRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return unwrap(await this.strength.remove(req.user.clientId!, id));
+  }
+  @Get('strength/exercises/:exerciseId') @Active() async strengthHistory(
+    @Req() req: ApiRequest,
+    @Param('exerciseId', new ParseUUIDPipe({ version: '4' }))
+    exerciseId: string,
+    @Query() q: PageDto,
+  ) {
+    return unwrap(
+      await this.strength.history(req.user.clientId!, q, exerciseId),
+    );
+  }
+  @Get('strength/overview') @Active() async strengthOverview(
+    @Req() req: ApiRequest,
+  ) {
+    return unwrap(await this.strength.overview(req.user.clientId!));
   }
   @Put('training/exercises/:id/selection') @Active() async exercise(
     @Req() req: ApiRequest,
@@ -80,6 +118,11 @@ export class ClientController {
     @Req() req: ApiRequest,
     @Body() dto: WorkoutDto,
   ) {
+    if (dto.sets !== undefined) {
+      return unwrap(
+        await this.strength.save(req.user.clientId!, dto as StrengthDto),
+      );
+    }
     return unwrap(
       await this.progress.log(
         req.user.clientId!,

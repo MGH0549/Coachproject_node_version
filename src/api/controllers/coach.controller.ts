@@ -17,10 +17,12 @@ import { ExercisesService } from '../../application/exercises/exercises.service'
 import { TrainingService } from '../../application/training/training.service';
 import { DietService } from '../../application/diet/diet.service';
 import { ProgressService } from '../../application/progress/progress.service';
+import { StrengthService } from '../../application/progress/strength.service';
 import { ApiRequest, Roles } from '../security';
 import { unwrap } from '../problem.filter';
 import {
   AccessDto,
+  DeletePlanDto,
   CoachExerciseChoiceDto,
   CoachMealChoiceDto,
   DietDto,
@@ -31,6 +33,7 @@ import {
   TrainingDto,
   UpdateExerciseDto,
   VersionDto,
+  StrengthHistoryDto,
 } from '../dtos';
 const uuid = () => new ParseUUIDPipe({ version: '4' });
 @ApiTags('Coach')
@@ -45,6 +48,7 @@ export class CoachController {
     private readonly training: TrainingService,
     private readonly diet: DietService,
     private readonly progress: ProgressService,
+    private readonly strength: StrengthService,
   ) {}
   @Get('clients') async list(@Query() q: PageDto) {
     return unwrap(await this.clients.list(q));
@@ -121,6 +125,16 @@ export class CoachController {
       await this.training.save(req.user, input, { clientId: id, version }),
     );
   }
+  @Delete('clients/:clientId/training')
+  async deleteTraining(
+    @Req() req: ApiRequest,
+    @Param('clientId', uuid()) clientId: string,
+    @Body() dto: DeletePlanDto,
+  ) {
+    return unwrap(
+      await this.training.remove(req.user, clientId, dto.planId, dto.version),
+    );
+  }
   @Put('clients/:clientId/training/lock') async lockTraining(
     @Req() req: ApiRequest,
     @Param('clientId', uuid()) id: string,
@@ -163,6 +177,16 @@ export class CoachController {
       await this.diet.save(req.user, input, { clientId: id, version }),
     );
   }
+  @Delete('clients/:clientId/diet')
+  async deleteDiet(
+    @Req() req: ApiRequest,
+    @Param('clientId', uuid()) clientId: string,
+    @Body() dto: DeletePlanDto,
+  ) {
+    return unwrap(
+      await this.diet.remove(req.user, clientId, dto.planId, dto.version),
+    );
+  }
   @Put('clients/:clientId/diet/lock') async lockDiet(
     @Req() req: ApiRequest,
     @Param('clientId', uuid()) id: string,
@@ -192,6 +216,12 @@ export class CoachController {
     @Query() q: PageDto,
   ) {
     return unwrap(await this.progress.history(id, q));
+  }
+  @Get('clients/:clientId/strength') async strengthHistory(
+    @Param('clientId', uuid()) id: string,
+    @Query() q: StrengthHistoryDto,
+  ) {
+    return unwrap(await this.strength.history(id, q, q.exerciseId));
   }
   @Get('clients/:clientId/workouts') async workouts(
     @Param('clientId', uuid()) id: string,

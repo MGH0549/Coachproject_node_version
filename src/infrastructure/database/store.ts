@@ -9,6 +9,8 @@ import {
   PageQuery,
   SessionToken,
   TrainingInput,
+  StrengthInput,
+  StrengthEdit,
 } from '../../domain/models';
 import { PrismaService } from './prisma.service';
 import {
@@ -22,6 +24,8 @@ import {
   trainingDto,
   trainingInclude,
   userDto,
+  strengthDto,
+  strengthInclude,
 } from './mappers';
 import {
   photoRetentionEnded,
@@ -323,6 +327,63 @@ export class PrismaStore implements Store {
     } catch (e) {
       if (code(e) === 'P2003') return 'in-use';
       throw e;
+    }
+  }
+  async deleteTemplate(
+    actor: Actor,
+    kind: 'training' | 'diet',
+    id: string,
+    version: number,
+  ): Promise<'ok' | 'missing' | 'conflict'> {
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const old =
+          kind === 'training'
+            ? await tx.trainingPlan.findUnique({ where: { id } })
+            : await tx.dietPlan.findUnique({ where: { id } });
+        if (!old || !old.isTemplate || old.clientId !== null) return 'missing';
+        if (old.version !== version) return 'conflict';
+        const where = { id, version, isTemplate: true, clientId: null };
+        const result =
+          kind === 'training'
+            ? await tx.trainingPlan.deleteMany({ where })
+            : await tx.dietPlan.deleteMany({ where });
+        if (!result.count) return 'conflict';
+        await audit(tx, actor, kind + '.template.delete', id);
+        return 'ok';
+      });
+    } catch (error) {
+      if (code(error) === 'P2034') return 'conflict';
+      throw error;
+    }
+  }
+  async deleteClientPlan(
+    actor: Actor,
+    kind: 'training' | 'diet',
+    clientId: string,
+    planId: string,
+    version: number,
+  ): Promise<'ok' | 'missing' | 'conflict'> {
+    try {
+      return await this.db.$transaction(async (tx) => {
+        const old =
+          kind === 'training'
+            ? await tx.trainingPlan.findUnique({ where: { clientId } })
+            : await tx.dietPlan.findUnique({ where: { clientId } });
+        if (!old || old.isTemplate) return 'missing';
+        if (old.id !== planId || old.version !== version) return 'conflict';
+        const where = { id: planId, clientId, version, isTemplate: false };
+        const result =
+          kind === 'training'
+            ? await tx.trainingPlan.deleteMany({ where })
+            : await tx.dietPlan.deleteMany({ where });
+        if (!result.count) return 'conflict';
+        await audit(tx, actor, kind + '.delete', planId);
+        return 'ok';
+      });
+    } catch (error) {
+      if (code(error) === 'P2034') return 'conflict';
+      throw error;
     }
   }
   async training(clientId: string) {
@@ -710,6 +771,141 @@ export class PrismaStore implements Store {
     ]);
     return page(items.map(checkInDto), total, q);
   }
+  async saveStrength(
+    clientId: string,
+    input: StrengthInput,
+    recordedAt: Date,
+    localDate: string,
+  ): ReturnType<Store['saveStrength']> {
+    return this.db.$transaction(async (tx) => {
+      // Serialize all strength mutations for a client, including different placements of the same exercise.
+      const client = await tx.clientProfile.updateMany({
+        where: { id: clientId },
+        data: { version: { increment: 0 } },
+      });
+      if (!client.count) return 'missing';
+      const plan = await tx.trainingPlan.findUnique({ where: { clientId } });
+      if (!plan) return 'missing';
+      await tx.trainingPlan.update({
+        where: { id: plan.id },
+        data: { version: { increment: 0 } },
+      });
+      const fresh = await tx.trainingPlan.findUniqueOrThrow({
+        where: { id: plan.id },
+      });
+      const placement = await tx.planExercise.findFirst({
+        where: { id: input.planExerciseId, day: { planId: plan.id } },
+        include: {
+          exercise: true,
+          alternatives: { include: { exercise: true } },
+        },
+      });
+      if (!placement) return 'missing';
+      const alternativeId = input.alternativeId ?? null;
+      const alternative = alternativeId
+        ? placement.alternatives.find((a) => a.id === alternativeId)
+        : null;
+      if (alternativeId && !alternative) return 'missing';
+      if (
+        (fresh.choicesLocked || placement.choicesLocked) &&
+        alternativeId !== placement.selectedAlternativeId
+      )
+        return 'locked';
+      const exercise = alternative?.exercise ?? placement.exercise;
+      const count = await tx.workoutSet.count({
+        where: { workoutLog: { clientId, exerciseId: exercise.id, localDate } },
+      });
+      if (count + input.sets.length > 10) return 'limit';
+      return strengthDto(
+        await tx.workoutLog.create({
+          data: {
+            clientId,
+            planExerciseId: placement.id,
+            exerciseId: exercise.id,
+            exerciseName: exercise.name,
+            alternativeId,
+            sets: alternative?.sets ?? placement.sets,
+            reps: alternative?.reps ?? placement.reps,
+            recordedAt,
+            localDate,
+            note: input.note ?? null,
+            workoutSets: { create: input.sets },
+          },
+          include: strengthInclude,
+        }),
+      );
+    });
+  }
+  async editStrength(
+    clientId: string,
+    id: string,
+    input: StrengthEdit,
+  ): ReturnType<Store['editStrength']> {
+    return this.db.$transaction(async (tx) => {
+      await tx.clientProfile.updateMany({
+        where: { id: clientId },
+        data: { version: { increment: 0 } },
+      });
+      const session = await tx.workoutLog.findFirst({
+        where: { id, clientId, workoutSets: { some: {} } },
+      });
+      if (!session) return 'missing';
+      const count = await tx.workoutSet.count({
+        where: {
+          workoutLog: {
+            clientId,
+            exerciseId: session.exerciseId,
+            localDate: session.localDate,
+            id: { not: id },
+          },
+        },
+      });
+      if (count + input.sets.length > 10) return 'limit';
+      return strengthDto(
+        await tx.workoutLog.update({
+          where: { id },
+          data: {
+            note: input.note ?? null,
+            workoutSets: { deleteMany: {}, create: input.sets },
+          },
+          include: strengthInclude,
+        }),
+      );
+    });
+  }
+  async deleteStrength(clientId: string, id: string) {
+    return this.db.$transaction(async (tx) => {
+      await tx.clientProfile.updateMany({
+        where: { id: clientId },
+        data: { version: { increment: 0 } },
+      });
+      const deleted = await tx.workoutLog.deleteMany({
+        where: { id, clientId, workoutSets: { some: {} } },
+      });
+      return deleted.count > 0;
+    });
+  }
+  async strengthHistory(clientId: string, q: PageQuery, exerciseId?: string) {
+    const where = { clientId, exerciseId, workoutSets: { some: {} } };
+    const [items, total] = await this.db.$transaction([
+      this.db.workoutLog.findMany({
+        where,
+        include: strengthInclude,
+        ...paging(q),
+        orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
+      }),
+      this.db.workoutLog.count({ where }),
+    ]);
+    return page(items.map(strengthDto), total, q);
+  }
+  async strengthSessions(clientId: string) {
+    const sessions = await this.db.workoutLog.findMany({
+      where: { clientId, workoutSets: { some: {} } },
+      include: strengthInclude,
+      orderBy: [{ recordedAt: 'desc' }, { id: 'desc' }],
+    });
+    return sessions.map(strengthDto);
+  }
   async workouts(clientId: string, q: PageQuery) {
     const [items, total] = await this.db.$transaction([
       this.db.workoutLog.findMany({
@@ -852,7 +1048,7 @@ export class PrismaStore implements Store {
           trainingPlan: { include: trainingInclude },
           dietPlan: { include: dietInclude },
           checkIns: { include: checkInInclude },
-          workoutLogs: true,
+          workoutLogs: { include: strengthInclude },
         },
       });
       await audit(tx, actor, 'client.export', clientId);
@@ -870,6 +1066,9 @@ export class PrismaStore implements Store {
           localDate: w.localDate,
           recordedAt: w.recordedAt,
         })),
+        strength: c.workoutLogs
+          .filter((w) => w.workoutSets.length > 0)
+          .map(strengthDto),
         photos: c.checkIns.flatMap((ci) =>
           ci.photos.map((p) => ({ id: p.id, checkInId: ci.id })),
         ),

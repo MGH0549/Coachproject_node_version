@@ -15,6 +15,9 @@ import {
   TrainingInput,
   User,
   Workout,
+  StrengthInput,
+  StrengthEdit,
+  StrengthSession,
 } from '../../domain/models';
 export interface Clock {
   now(): Date;
@@ -100,6 +103,19 @@ export interface Store {
     id: string,
     version: number,
   ): Promise<'ok' | 'conflict' | 'in-use'>;
+  deleteClientPlan(
+    actor: Actor,
+    kind: 'training' | 'diet',
+    clientId: string,
+    planId: string,
+    version: number,
+  ): Promise<'ok' | 'missing' | 'conflict'>;
+  deleteTemplate(
+    actor: Actor,
+    kind: 'training' | 'diet',
+    id: string,
+    version: number,
+  ): Promise<'ok' | 'missing' | 'conflict'>;
   training(clientId: string): Promise<Training | null>;
   trainingById(id: string): Promise<Training | null>;
   diet(clientId: string): Promise<Diet | null>;
@@ -149,6 +165,24 @@ export interface Store {
   ): Promise<CheckIn>;
   checkIns(clientId: string, query: PageQuery): Promise<Page<CheckIn>>;
   workouts(clientId: string, query: PageQuery): Promise<Page<Workout>>;
+  saveStrength(
+    clientId: string,
+    input: StrengthInput,
+    now: Date,
+    localDate: string,
+  ): Promise<StrengthSession | 'missing' | 'locked' | 'limit'>;
+  editStrength(
+    clientId: string,
+    id: string,
+    input: StrengthEdit,
+  ): Promise<StrengthSession | 'missing' | 'limit'>;
+  deleteStrength(clientId: string, id: string): Promise<boolean>;
+  strengthHistory(
+    clientId: string,
+    query: PageQuery,
+    exerciseId?: string,
+  ): Promise<Page<StrengthSession>>;
+  strengthSessions(clientId: string): Promise<StrengthSession[]>;
   logWorkout(
     clientId: string,
     placementId: string,

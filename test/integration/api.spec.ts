@@ -320,6 +320,11 @@ describe('PostgreSQL API integration', () => {
         ['post', `check-ins/${id}/photos`],
         ['get', `photos/${id}`],
         ['delete', `photos/${id}`],
+        ['post', 'strength'],
+        ['put', `strength/${id}`],
+        ['delete', `strength/${id}`],
+        ['get', `strength/exercises/${id}`],
+        ['get', 'strength/overview'],
       ];
       for (const [method, route] of routes) {
         const agent = client();
@@ -864,6 +869,39 @@ describe('PostgreSQL API integration', () => {
         docs.body.paths['/api/v1/coach/clients/{clientId}'].get.responses['200']
           .content['application/json'].schema.$ref,
       ).toBe('#/components/schemas/CoachAccount');
+      expect(
+        docs.body.components.schemas.StrengthSet.properties.weightKg,
+      ).toMatchObject({ minimum: 0, maximum: 500, multipleOf: 0.25 });
+      expect(
+        docs.body.components.schemas.StrengthSession.properties
+          .estimatedOneRepMaxKg,
+      ).toEqual({ type: 'number' });
+      expect(
+        docs.body.components.schemas.Export.properties.strength.items.$ref,
+      ).toBe('#/components/schemas/StrengthExportSession');
+      for (const [path, method, status, schema] of [
+        ['/api/v1/me/strength', 'post', '201', 'StrengthSession'],
+        ['/api/v1/me/strength/{id}', 'put', '200', 'StrengthSession'],
+        ['/api/v1/me/strength/{id}', 'delete', '200', 'Message'],
+        [
+          '/api/v1/me/strength/exercises/{exerciseId}',
+          'get',
+          '200',
+          'StrengthPage',
+        ],
+        ['/api/v1/me/strength/overview', 'get', '200', 'StrengthOverview'],
+        [
+          '/api/v1/coach/clients/{clientId}/strength',
+          'get',
+          '200',
+          'StrengthPage',
+        ],
+      ])
+        expect(
+          docs.body.paths[path][method].responses[status].content[
+            'application/json'
+          ].schema.$ref,
+        ).toBe(`#/components/schemas/${schema}`);
       expect(
         docs.body.components.schemas.Training.properties.days,
       ).toBeDefined();

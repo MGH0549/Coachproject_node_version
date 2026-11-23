@@ -151,6 +151,22 @@ export interface Workout {
   recordedAt: Date;
   localDate: string;
 }
+export interface StrengthSet {
+  setNumber: number;
+  weightKg: number;
+  repetitions: number;
+}
+export interface StrengthInput {
+  planExerciseId: string;
+  alternativeId?: string | null;
+  sets: StrengthSet[];
+  note?: string | null;
+}
+export type StrengthEdit = Pick<StrengthInput, 'sets' | 'note'>;
+export interface StrengthSession extends Omit<Workout, 'sets' | 'reps'> {
+  note: string | null;
+  sets: StrengthSet[];
+}
 export interface PageQuery {
   page: number;
   pageSize: number;
@@ -175,5 +191,6 @@ export interface ClientExport {
     Workout,
     'id' | 'exerciseName' | 'sets' | 'reps' | 'localDate' | 'recordedAt'
   >[];
+  strength: StrengthSession[];
   photos: { id: string; checkInId: string }[];
 }

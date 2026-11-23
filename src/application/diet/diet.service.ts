@@ -13,6 +13,27 @@ export function withTotals(plan: Diet) {
 }
 export class DietService {
   constructor(private readonly db: Store) {}
+  async remove(
+    actor: Actor,
+    clientId: string,
+    planId: string,
+    version: number,
+  ) {
+    if (actor.role !== 'Coach')
+      return fail('FORBIDDEN', 'ليس لديك صلاحية لهذا الإجراء', 403);
+    const result = await this.db.deleteClientPlan(
+      actor,
+      'diet',
+      clientId,
+      planId,
+      version,
+    );
+    return result === 'ok'
+      ? ok({ message: 'تم حذف الخطة' })
+      : result === 'missing'
+        ? missing()
+        : conflict();
+  }
   async get(clientId: string) {
     const plan = await this.db.diet(clientId);
     return plan ? ok(withTotals(plan)) : missing();

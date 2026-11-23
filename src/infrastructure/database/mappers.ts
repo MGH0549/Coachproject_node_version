@@ -6,7 +6,31 @@ import {
   Exercise,
   Training,
   User,
+  StrengthSession,
 } from '../../domain/models';
+export const strengthInclude = {
+  workoutSets: { orderBy: { setNumber: 'asc' as const } },
+} satisfies Prisma.WorkoutLogInclude;
+export function strengthDto(
+  w: Prisma.WorkoutLogGetPayload<{ include: typeof strengthInclude }>,
+): StrengthSession {
+  return {
+    id: w.id,
+    clientId: w.clientId,
+    planExerciseId: w.planExerciseId,
+    exerciseId: w.exerciseId,
+    exerciseName: w.exerciseName,
+    alternativeId: w.alternativeId,
+    recordedAt: w.recordedAt,
+    localDate: w.localDate,
+    note: w.note,
+    sets: w.workoutSets.map((s) => ({
+      setNumber: s.setNumber,
+      weightKg: Number(s.weightKg),
+      repetitions: s.repetitions,
+    })),
+  };
+}
 export const clientInclude = {
   user: { select: { email: true } },
 } satisfies Prisma.ClientProfileInclude;

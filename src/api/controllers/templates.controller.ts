@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -13,7 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TemplatesService } from '../../application/templates/templates.service';
 import { TrainingService } from '../../application/training/training.service';
 import { DietService } from '../../application/diet/diet.service';
-import { CopyDto, DietDto, PageDto, TrainingDto } from '../dtos';
+import { CopyDto, DietDto, PageDto, TrainingDto, VersionDto } from '../dtos';
 import { ApiRequest, Roles } from '../security';
 import { unwrap } from '../problem.filter';
 @ApiTags('Templates')
@@ -69,6 +70,16 @@ export class TemplatesController {
     const { version, ...input } = dto;
     return unwrap(await this.diet.save(req.user, input, { id, version }));
   }
+  @Delete('training/:id')
+  async deleteTraining(
+    @Req() req: ApiRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: VersionDto,
+  ) {
+    return unwrap(
+      await this.templates.remove(req.user, 'training', id, dto.version),
+    );
+  }
   @Post('training/:id/copy') async copyTraining(
     @Req() req: ApiRequest,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
@@ -82,6 +93,16 @@ export class TemplatesController {
         dto.clientId,
         dto.version,
       ),
+    );
+  }
+  @Delete('diet/:id')
+  async deleteDiet(
+    @Req() req: ApiRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: VersionDto,
+  ) {
+    return unwrap(
+      await this.templates.remove(req.user, 'diet', id, dto.version),
     );
   }
   @Post('diet/:id/copy') async copyDiet(

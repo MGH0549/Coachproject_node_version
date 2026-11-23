@@ -115,6 +115,12 @@ export function documentResponses(document: OpenAPIObject) {
       },
       ['notes'],
     ),
+    LastTrainingSession: object({
+      sets: { ...list('StrengthSet'), minItems: 1, maxItems: 10 },
+      recordedAt: date,
+      localDate: { type: 'string', format: 'date' },
+    }),
+    TrainingCompletion: { oneOf: [ref('Workout'), ref('StrengthSession')] },
     Alternative: object(
       {
         id,
@@ -123,8 +129,10 @@ export function documentResponses(document: OpenAPIObject) {
         reps: str,
         note: str,
         exercise: ref('Exercise'),
+        lastSession: ref('LastTrainingSession'),
+        bestWeightKg: number,
       },
-      ['sets', 'reps', 'note'],
+      ['sets', 'reps', 'note', 'lastSession', 'bestWeightKg'],
     ),
     Placement: object(
       {
@@ -140,8 +148,10 @@ export function documentResponses(document: OpenAPIObject) {
         selectedAlternativeId: nullable(id),
         exercise: ref('Exercise'),
         alternatives: list('Alternative'),
+        lastSession: ref('LastTrainingSession'),
+        bestWeightKg: number,
       },
-      ['tempo', 'note'],
+      ['tempo', 'note', 'lastSession', 'bestWeightKg'],
     ),
     Day: object({
       id,
@@ -215,6 +225,54 @@ export function documentResponses(document: OpenAPIObject) {
       recordedAt: date,
       localDate: { type: 'string', format: 'date' },
     }),
+    StrengthSet: object({
+      setNumber: { type: 'integer', minimum: 1, maximum: 10 },
+      weightKg: { type: 'number', minimum: 0, maximum: 500, multipleOf: 0.25 },
+      repetitions: { type: 'integer', minimum: 1, maximum: 100 },
+    }),
+    StrengthSession: object({
+      id,
+      clientId: id,
+      planExerciseId: id,
+      exerciseId: id,
+      exerciseName: str,
+      alternativeId: nullable(id),
+      recordedAt: date,
+      localDate: { type: 'string', format: 'date' },
+      note: nullable(str),
+      sets: { ...list('StrengthSet'), minItems: 1, maxItems: 10 },
+      bestSet: ref('StrengthSet'),
+      heaviestWeightKg: number,
+      estimatedOneRepMaxKg: number,
+    }),
+    StrengthExportSession: object({
+      id,
+      clientId: id,
+      planExerciseId: id,
+      exerciseId: id,
+      exerciseName: str,
+      alternativeId: nullable(id),
+      recordedAt: date,
+      localDate: { type: 'string', format: 'date' },
+      note: nullable(str),
+      sets: list('StrengthSet'),
+    }),
+    StrengthPage: paged('StrengthSession'),
+    StrengthOverview: object({
+      items: {
+        type: 'array',
+        items: object({
+          exerciseId: id,
+          exerciseName: str,
+          latestWeightKg: nullable(number),
+          bestWeightKg: nullable(number),
+          bestSet: { ...ref('StrengthSet'), nullable: true },
+          estimatedOneRepMaxKg: nullable(number),
+          trendKg: nullable(number),
+          latestRecordedAt: nullable(date),
+        }),
+      },
+    }),
     PhotoLink: object({
       url: { type: 'string', format: 'uri' },
       expiresIn: integer,
@@ -226,6 +284,7 @@ export function documentResponses(document: OpenAPIObject) {
       training: { ...ref('Training'), nullable: true },
       diet: { ...ref('Diet'), nullable: true },
       checkIns: list('CheckIn'),
+      strength: list('StrengthExportSession'),
       workouts: {
         type: 'array',
         items: object({
@@ -267,8 +326,14 @@ export function documentResponses(document: OpenAPIObject) {
     ClientController_exercise: 'Training',
     ClientController_dietPlan: 'Diet',
     ClientController_meal: 'Diet',
-    ClientController_log: 'Workout',
+    ClientController_log: 'TrainingCompletion',
     ClientController_workouts: 'WorkoutPage',
+    ClientController_saveStrength: 'StrengthSession',
+    ClientController_editStrength: 'StrengthSession',
+    ClientController_deleteStrength: 'Message',
+    ClientController_strengthHistory: 'StrengthPage',
+    ClientController_strengthOverview: 'StrengthOverview',
+    CoachController_strengthHistory: 'StrengthPage',
     ClientController_checkIn: 'CheckIn',
     ClientController_history: 'ProgressPage',
     ClientController_upload: 'PhotoId',
@@ -288,10 +353,12 @@ export function documentResponses(document: OpenAPIObject) {
     CoachController_removeExercise: 'Message',
     CoachController_trainingPlan: 'Training',
     CoachController_saveTraining: 'Training',
+    CoachController_deleteTraining: 'Message',
     CoachController_lockTraining: 'Training',
     CoachController_selectExercise: 'Training',
     CoachController_dietPlan: 'Diet',
     CoachController_saveDiet: 'Diet',
+    CoachController_deleteDiet: 'Message',
     CoachController_lockDiet: 'Diet',
     CoachController_selectMeal: 'Diet',
     CoachController_progressHistory: 'ProgressPage',
@@ -307,8 +374,10 @@ export function documentResponses(document: OpenAPIObject) {
     TemplatesController_getDiet: 'Diet',
     TemplatesController_createTraining: 'Training',
     TemplatesController_editTraining: 'Training',
+    TemplatesController_deleteTraining: 'Message',
     TemplatesController_createDiet: 'Diet',
     TemplatesController_editDiet: 'Diet',
+    TemplatesController_deleteDiet: 'Message',
     TemplatesController_copyTraining: 'Training',
     TemplatesController_copyDiet: 'Diet',
     HealthController_health: 'Health',
@@ -318,6 +387,18 @@ export function documentResponses(document: OpenAPIObject) {
       const operation = path?.[method];
       if (!operation) continue;
       const schema = responses[operation.operationId ?? ''];
+      if (
+        operation.operationId?.includes('Strength') ||
+        operation.operationId?.includes('strength')
+      )
+        operation.description =
+          'Strength sessions: weights in kg (0–500, steps of 0.25), reps 1–100, maximum 10 sets per actual exercise per Cairo day across sessions/placements. Existing choice locks apply. Epley estimated 1RM = weight × (1 + reps/30), except one rep equals weight; best set has highest estimate. Overview trendKg is the change in best estimated 1RM between the latest two sessions. PUT replaces sets/note and preserves the original exercise, alternative and date. Coach access is read-only.';
+      if (operation.operationId === 'ClientController_log')
+        operation.description =
+          'Save completion and optional sets in one atomic workout insert. Omit sets for completion only. Supplied sets must contain 1-10 rows: weight 0-500 kg in 0.25 increments, integer reps 1-100. Daily cap is 10 sets per actual exercise in Africa/Cairo. Active clients only; plan ownership, alternatives and choice locks are enforced.';
+      if (operation.operationId === 'ClientController_plan')
+        operation.description =
+          'Own plan only. Each placement and alternative independently includes lastSession (sets, recordedAt, Cairo localDate) and bestWeightKg for its actual exercise. Both fields are omitted when never logged. Completion without sets does not change lastSession.';
       if (operation.operationId === 'AuthController_register')
         operation.description =
           'Returns 201 with Pending registration details only; creates no session or cookie. Call login next.';

@@ -23,6 +23,7 @@ import { ExercisesService } from './application/exercises/exercises.service';
 import { TrainingService } from './application/training/training.service';
 import { DietService } from './application/diet/diet.service';
 import { ProgressService } from './application/progress/progress.service';
+import { StrengthService } from './application/progress/strength.service';
 import { TemplatesService } from './application/templates/templates.service';
 import { HousekeepingService } from './application/common/housekeeping.service';
 import { Settings } from './application/common/ports';
@@ -79,6 +80,12 @@ const SETTINGS = Symbol('settings');
     HealthController,
   ],
   providers: [
+    {
+      provide: StrengthService,
+      inject: [PrismaStore, CairoClock],
+      useFactory: (db: PrismaStore, clock: CairoClock) =>
+        new StrengthService(db, clock),
+    },
     PrismaService,
     PrismaStore,
     ArgonCrypto,

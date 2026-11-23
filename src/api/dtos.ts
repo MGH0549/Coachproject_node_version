@@ -18,6 +18,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateBy,
   ValidateNested,
   ValidateIf,
 } from 'class-validator';
@@ -84,6 +85,12 @@ export class ResetDto {
   @Matches(/^(?=.*[\p{L}])(?=.*\d).+$/u, msg)
   password!: string;
 }
+export class DeletePlanDto {
+  @ApiProperty() @IsInt(msg) @Min(1, msg) version!: number;
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID('4', msg)
+  planId!: string;
+}
 export class PageDto {
   @ApiPropertyOptional({ default: 1 })
   @Type(() => Number)
@@ -123,6 +130,65 @@ export class PageDto {
 }
 export class VersionDto {
   @ApiProperty() @IsInt(msg) @Min(1, msg) version!: number;
+}
+export class StrengthSetDto {
+  @ApiProperty({ minimum: 1, maximum: 10 })
+  @IsInt(msg)
+  @Min(1, msg)
+  @Max(10, msg)
+  setNumber!: number;
+  @ApiProperty({ minimum: 0, maximum: 500, multipleOf: 0.25 })
+  @IsNumber({ allowNaN: false, allowInfinity: false }, msg)
+  @Min(0, msg)
+  @Max(500, msg)
+  @ValidateBy(
+    {
+      name: 'isQuarterKilogram',
+      validator: {
+        validate: (value: unknown) =>
+          typeof value === 'number' && Number.isInteger(value * 4),
+      },
+    },
+    msg,
+  )
+  weightKg!: number;
+  @ApiProperty({ minimum: 1, maximum: 100 })
+  @IsInt(msg)
+  @Min(1, msg)
+  @Max(100, msg)
+  repetitions!: number;
+}
+export class StrengthEditDto {
+  @ApiProperty({ type: [StrengthSetDto], minItems: 1, maxItems: 10 })
+  @IsArray(msg)
+  @ArrayMinSize(1, msg)
+  @ArrayMaxSize(10, msg)
+  @ValidateNested({ each: true })
+  @Type(() => StrengthSetDto)
+  sets!: StrengthSetDto[];
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: 3000 })
+  @IsOptional()
+  @IsString(msg)
+  @MaxLength(3000, msg)
+  note?: string | null;
+}
+export class StrengthDto extends StrengthEditDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID('4', msg)
+  planExerciseId!: string;
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @IsUUID('4', msg)
+  alternativeId?: string | null;
+}
+export class StrengthHistoryDto extends PageDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Filter by the actual exercise performed',
+  })
+  @IsOptional()
+  @IsUUID('4', msg)
+  exerciseId?: string;
 }
 export class AccessDto extends VersionDto {
   @ApiPropertyOptional({ example: '2027-01-31' })
@@ -328,6 +394,21 @@ export class CheckInDto {
   notes?: string;
 }
 export class WorkoutDto {
+  @ApiPropertyOptional({
+    type: [StrengthSetDto],
+    minItems: 1,
+    maxItems: 10,
+    description:
+      'Omit to mark done without weights; supplied sets and completion are saved atomically.',
+  })
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsArray(msg)
+  @ArrayMinSize(1, msg)
+  @ArrayMaxSize(10, msg)
+  @ValidateNested({ each: true })
+  @Type(() => StrengthSetDto)
+  sets?: StrengthSetDto[];
+
   @ApiProperty() @IsUUID('4', msg) planExerciseId!: string;
   @ApiPropertyOptional({ nullable: true })
   @IsOptional()
