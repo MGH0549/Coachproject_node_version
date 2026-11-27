@@ -47,6 +47,9 @@ describe('PostgreSQL API integration', () => {
     'email',
     'status',
     'accessEndsAt',
+    'whatsapp',
+    'activatedAt',
+    'createdAt',
     'package',
     'timeZone',
     'whatsappUrl',
@@ -299,6 +302,9 @@ describe('PostgreSQL API integration', () => {
         [...accountFields].sort(),
       );
       expect(account.body).toEqual({
+        whatsapp: expect.any(String),
+        activatedAt: null,
+        createdAt: expect.any(String),
         fullName: 'New Client',
         email: fixture.email,
         status,

@@ -15,6 +15,9 @@ export class ClientsService {
     return ok({
       fullName: client.fullName,
       email: client.email,
+      whatsapp: client.whatsapp,
+      activatedAt: client.activatedAt,
+      createdAt: client.createdAt,
       status: client.status,
       accessEndsAt: client.accessEndAt,
       package: client.package,
